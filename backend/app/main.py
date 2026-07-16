@@ -14,11 +14,12 @@ class ProgramCreate(BaseModel):
 
 class ScheduleCreate(BaseModel):
     program_id: str     
-    week: str            
+    week: int            
     exercise_name: str   
     target_weight: float 
     target_sets: int     
     target_reps: int     
+    notes: str | None = None
 
 class WorkoutLogCreate(BaseModel):
     schedule_id: str     
@@ -71,18 +72,46 @@ def create_schedule(schedule: ScheduleCreate):
 def create_workout_log(log: WorkoutLogCreate):
     try:
        
+        schedule_response = supabase.table("schedules").select("*").eq("id", log.schedule_id).execute()
+        
+        if len(schedule_response.data) == 0:
+            raise HTTPException(status_code=404, detail="Target schedule not found.")
+            
+        target = schedule_response.data[0]
+        target_weight = target["target_weight"]
+        target_sets = target["target_sets"]
+        target_reps = target["target_reps"]
+
+        if (
+            log.actual_weight == target_weight
+            and len(log.actual_reps) == target_sets
+            and all(rep >= target_reps for rep in log.actual_reps)
+        ):
+            status = "PASS"
+            recommendation = "Move to next week's workout."
+        else:
+            status = "FAIL"
+            recommendation = "Repeat the current week."
+
         response = supabase.table("workout_logs").insert({
             "schedule_id": log.schedule_id,
             "log_name": log.log_name,
             "actual_weight": log.actual_weight,
-            "actual_reps": log.actual_reps 
+            "actual_reps": log.actual_reps,
+            "status": status,               
+            "recommendation": recommendation 
         }).execute()
         
         if len(response.data) == 0:
             raise HTTPException(status_code=400, detail="Failed to log workout details.")
-        return {"message": "Gym workout logged successfully!", "data": response.data[0]}
+            
+        return {
+            "message": "Gym workout logged successfully!",
+            "status_calculated": status,
+            "data": response.data[0]
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))@app.get("/programs")
+        raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/programs")
 def get_all_programs():
@@ -107,3 +136,4 @@ def get_logs_by_schedule(schedule_id: str):
         return {"data": response.data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
