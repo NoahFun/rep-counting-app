@@ -2,8 +2,16 @@ import os
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from supabase import create_client, Client
+from fastapi.middleware.cors import CORSMiddleware
 
 app= FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 SUPABASE_URL="https://klldkzitusmrtgyvhkit.supabase.co"
 SUPABASE_KEY="sb_publishable_YXzIRGJs1bJwMWmZ2N8CHg_C_-a6K_l"
@@ -83,23 +91,22 @@ def create_workout_log(log: WorkoutLogCreate):
         target_reps = target["target_reps"]
 
         if (
-            log.actual_weight == target_weight
-            and len(log.actual_reps) == target_sets
+            log.actual_weight >= target_weight
+            and len(log.actual_reps) >= target_sets
             and all(rep >= target_reps for rep in log.actual_reps)
         ):
             status = "PASS"
-            recommendation = "Move to next week's workout."
         else:
             status = "FAIL"
-            recommendation = "Repeat the current week."
 
+        # Do not insert status and recommendation into Supabase because they are not in the schema.
+        # They will be computed dynamically in the /analysis endpoint.
+        print("DEBUG: Executing insert without recommendation!")
         response = supabase.table("workout_logs").insert({
             "schedule_id": log.schedule_id,
             "log_name": log.log_name,
             "actual_weight": log.actual_weight,
-            "actual_reps": log.actual_reps,
-            "status": status,               
-            "recommendation": recommendation 
+            "actual_reps": log.actual_reps
         }).execute()
         
         if len(response.data) == 0:
@@ -137,3 +144,51 @@ def get_logs_by_schedule(schedule_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+# ---- GET Routes (Retrieving Data) ----
+
+@app.get("/analysis/{schedule_id}")
+def get_workout_analysis(schedule_id: str):
+    try:
+        # Fetch the schedule to know the target requirements
+        sched_res = supabase.table("schedules").select("*").eq("id", schedule_id).execute()
+        if len(sched_res.data) == 0:
+            return {"schedule_id": schedule_id, "history": []}
+            
+        target = sched_res.data[0]
+        t_weight = target["target_weight"]
+        t_sets = target["target_sets"]
+        t_reps = target["target_reps"]
+
+        # Fetch logs
+        response = supabase.table("workout_logs").select("id", "log_name", "actual_weight", "actual_reps", "created_at").eq("schedule_id", schedule_id).execute()
+        
+        history = []
+        for log in response.data:
+            a_weight = log.get("actual_weight", 0)
+            a_reps = log.get("actual_reps", [])
+            
+            if (
+                a_weight >= t_weight
+                and len(a_reps) >= t_sets
+                and all(rep >= t_reps for rep in a_reps)
+            ):
+                status = "PASS"
+                rec = "Move to next week's workout."
+            else:
+                status = "FAIL"
+                rec = "Repeat the current week."
+                
+            history.append({
+                "id": log["id"],
+                "log_name": log.get("log_name"),
+                "status": status,
+                "recommendation": rec,
+                "created_at": log.get("created_at")
+            })
+
+        return {
+            "schedule_id": schedule_id,
+            "history": history
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
