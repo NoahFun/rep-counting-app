@@ -12,6 +12,7 @@ import {
   Legend,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
+import AICameraCounter from './AICameraCounter';
 
 ChartJS.register(
   CategoryScale,
@@ -44,6 +45,8 @@ function App() {
   const [logName, setLogName] = useState('');
   const [actualWeight, setActualWeight] = useState('');
   const [actualReps, setActualReps] = useState(''); 
+  const [showCamera, setShowCamera] = useState(false);
+  const [showQuickCounter, setShowQuickCounter] = useState(false);
   
   // Analysis & Dashboard
   const [analysisHistory, setAnalysisHistory] = useState([]);
@@ -172,6 +175,11 @@ function App() {
     }
   };
 
+  const handleApplyCameraReps = (reps) => {
+    setActualReps(prev => prev ? `${prev},${reps}` : `${reps}`);
+    setShowCamera(false);
+  };
+
   // --- Chart Data Preparation ---
   // Strength Progress Chart: Track weight over weeks for the first logged exercise (simplified for MVP)
   const strengthChartData = {
@@ -219,7 +227,7 @@ function App() {
       {/* Program Selector & Tabs */}
       <div className="card" style={{ marginBottom: '24px' }}>
         <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: '250px' }}>
+          <div style={{ flex: 2, minWidth: '250px' }}>
             <label>Select Current Program</label>
             <select value={selectedProgramId} onChange={(e) => setSelectedProgramId(e.target.value)}>
               <option value="">-- Choose Plan --</option>
@@ -228,7 +236,7 @@ function App() {
               ))}
             </select>
           </div>
-          <div style={{ flex: 1, minWidth: '250px' }}>
+          <div style={{ flex: 2, minWidth: '250px' }}>
             <label>Or Create New Program</label>
             <form onSubmit={handleCreateProgram} style={{ display: 'flex', gap: '8px' }}>
               <input 
@@ -240,6 +248,20 @@ function App() {
               />
               <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Create</button>
             </form>
+          </div>
+          <div style={{ flex: 1, minWidth: '150px' }}>
+            <label>Quick Tools</label>
+            <button 
+              type="button" 
+              className="btn" 
+              style={{ background: '#818cf8', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+              onClick={() => {
+                setShowQuickCounter(!showQuickCounter);
+                setShowCamera(false);
+              }}
+            >
+              {showQuickCounter ? '❌ Close Counter' : '🤖 Quick AI Counter'}
+            </button>
           </div>
         </div>
 
@@ -262,6 +284,18 @@ function App() {
           </div>
         )}
       </div>
+
+      {showQuickCounter && (
+        <div style={{ maxWidth: '450px', margin: '0 auto 24px auto' }} className="animate-fade-in">
+          <AICameraCounter 
+            onApplyCount={(count) => {
+              alert(`Reps Counted: ${count}!\n\nTo save this, select a program below, and click the "Open AI Counter" inside your logging form to apply it to a log.`);
+              setShowQuickCounter(false);
+            }} 
+            onClose={() => setShowQuickCounter(false)} 
+          />
+        </div>
+      )}
 
       {selectedProgramId && activeTab === 'manage' && (
         <div className="grid-layout animate-fade-in">
@@ -327,10 +361,27 @@ function App() {
                     <input type="number" step="0.5" placeholder="e.g., 40" value={actualWeight} onChange={(e) => setActualWeight(e.target.value)} />
                   </div>
                   <div className="input-group">
-                    <label>Actual Performance Array (Reps per completed set, comma separated)</label>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <label style={{ margin: 0 }}>Actual Performance Array (Reps per completed set, comma separated)</label>
+                      <button 
+                        type="button" 
+                        className="btn" 
+                        style={{ width: 'auto', padding: '4px 10px', fontSize: '0.85rem', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        onClick={() => setShowCamera(!showCamera)}
+                      >
+                        {showCamera ? '❌ Close Counter' : '🤖 Open AI Counter'}
+                      </button>
+                    </div>
                     <input type="text" placeholder="e.g., 10,10,10,10,10" value={actualReps} onChange={(e) => setActualReps(e.target.value)} />
                   </div>
-                  <button type="submit" className="btn btn-success">Submit & Evaluate</button>
+
+                  {showCamera && (
+                    <AICameraCounter 
+                      onApplyCount={handleApplyCameraReps} 
+                      onClose={() => setShowCamera(false)} 
+                    />
+                  )}
+                  <button type="submit" className="btn btn-success" style={{ marginTop: '10px' }}>Submit & Evaluate</button>
                 </form>
               </div>
             )}
