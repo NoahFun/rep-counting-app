@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
 import AICameraCounter from './AICameraCounter';
+import AIBreathingCounter from './AIBreathingCounter';
 
 ChartJS.register(
   CategoryScale,
@@ -46,7 +47,9 @@ function App() {
   const [actualWeight, setActualWeight] = useState('');
   const [actualReps, setActualReps] = useState(''); 
   const [showCamera, setShowCamera] = useState(false);
+  const [showBreathing, setShowBreathing] = useState(false);
   const [showQuickCounter, setShowQuickCounter] = useState(false);
+  const [showQuickBreathing, setShowQuickBreathing] = useState(false);
   
   // Analysis & Dashboard
   const [analysisHistory, setAnalysisHistory] = useState([]);
@@ -180,6 +183,11 @@ function App() {
     setShowCamera(false);
   };
 
+  const handleApplyBreathingReps = (reps) => {
+    setActualReps(prev => prev ? `${prev},${reps}` : `${reps}`);
+    setShowBreathing(false);
+  };
+
   // --- Chart Data Preparation ---
   // Strength Progress Chart: Track weight over weeks for the first logged exercise (simplified for MVP)
   const strengthChartData = {
@@ -249,19 +257,36 @@ function App() {
               <button type="submit" className="btn btn-primary" style={{ width: 'auto' }}>Create</button>
             </form>
           </div>
-          <div style={{ flex: 1, minWidth: '150px' }}>
-            <label>Quick Tools</label>
-            <button 
-              type="button" 
-              className="btn" 
-              style={{ background: '#818cf8', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
-              onClick={() => {
-                setShowQuickCounter(!showQuickCounter);
-                setShowCamera(false);
-              }}
-            >
-              {showQuickCounter ? '❌ Close Counter' : '🤖 Quick AI Counter'}
-            </button>
+          <div style={{ flex: 2, minWidth: '300px', display: 'flex', gap: '8px', flexDirection: 'column' }}>
+            <label>Quick AI Tools</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                type="button" 
+                className="btn" 
+                style={{ flex: 1, background: '#818cf8', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+                onClick={() => {
+                  setShowQuickCounter(!showQuickCounter);
+                  setShowQuickBreathing(false);
+                  setShowCamera(false);
+                  setShowBreathing(false);
+                }}
+              >
+                {showQuickCounter ? '❌ Close Camera' : '📷 Quick camera'}
+              </button>
+              <button 
+                type="button" 
+                className="btn" 
+                style={{ flex: 1, background: '#10b981', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+                onClick={() => {
+                  setShowQuickBreathing(!showQuickBreathing);
+                  setShowQuickCounter(false);
+                  setShowCamera(false);
+                  setShowBreathing(false);
+                }}
+              >
+                {showQuickBreathing ? '❌ Close Breathing' : '💨 Quick breathing'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -293,6 +318,18 @@ function App() {
               setShowQuickCounter(false);
             }} 
             onClose={() => setShowQuickCounter(false)} 
+          />
+        </div>
+      )}
+
+      {showQuickBreathing && (
+        <div style={{ maxWidth: '450px', margin: '0 auto 24px auto' }} className="animate-fade-in">
+          <AIBreathingCounter 
+            onApplyCount={(count) => {
+              alert(`Reps Counted: ${count}!\n\nTo save this, select a program below, and click the "Open Breathing Counter" inside your logging form to apply it to a log.`);
+              setShowQuickBreathing(false);
+            }} 
+            onClose={() => setShowQuickBreathing(false)} 
           />
         </div>
       )}
@@ -363,22 +400,39 @@ function App() {
                   <div className="input-group">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <label style={{ margin: 0 }}>Actual Performance Array (Reps per completed set, comma separated)</label>
-                      <button 
-                        type="button" 
-                        className="btn" 
-                        style={{ width: 'auto', padding: '4px 10px', fontSize: '0.85rem', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        onClick={() => setShowCamera(!showCamera)}
-                      >
-                        {showCamera ? '❌ Close Counter' : '🤖 Open AI Counter'}
-                      </button>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button 
+                          type="button" 
+                          className="btn" 
+                          style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                          onClick={() => { setShowCamera(!showCamera); setShowBreathing(false); }}
+                        >
+                          {showCamera ? '❌ Close Camera' : '📷 Open Camera'}
+                        </button>
+                        <button 
+                          type="button" 
+                          className="btn" 
+                          style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                          onClick={() => { setShowBreathing(!showBreathing); setShowCamera(false); }}
+                        >
+                          {showBreathing ? '❌ Close Breathing' : '💨 Open Breathing'}
+                        </button>
+                      </div>
                     </div>
                     <input type="text" placeholder="e.g., 10,10,10,10,10" value={actualReps} onChange={(e) => setActualReps(e.target.value)} />
                   </div>
-
+ 
                   {showCamera && (
                     <AICameraCounter 
                       onApplyCount={handleApplyCameraReps} 
                       onClose={() => setShowCamera(false)} 
+                    />
+                  )}
+
+                  {showBreathing && (
+                    <AIBreathingCounter 
+                      onApplyCount={handleApplyBreathingReps} 
+                      onClose={() => setShowBreathing(false)} 
                     />
                   )}
                   <button type="submit" className="btn btn-success" style={{ marginTop: '10px' }}>Submit & Evaluate</button>
