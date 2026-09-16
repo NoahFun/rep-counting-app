@@ -1,3 +1,8 @@
 venv/
 backend/app/__pycache__/
 .env
+.env.*
+*.pyc
+.idea/
+.vscode/
+.DS_Store
