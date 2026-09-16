@@ -13,7 +13,6 @@ import {
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
 import AICameraCounter from './AICameraCounter';
-import AIBreathingCounter from './AIBreathingCounter';
 
 ChartJS.register(
   CategoryScale,
@@ -47,9 +46,7 @@ function App() {
   const [actualWeight, setActualWeight] = useState('');
   const [actualReps, setActualReps] = useState(''); 
   const [showCamera, setShowCamera] = useState(false);
-  const [showBreathing, setShowBreathing] = useState(false);
   const [showQuickCounter, setShowQuickCounter] = useState(false);
-  const [showQuickBreathing, setShowQuickBreathing] = useState(false);
   
   // Analysis & Dashboard
   const [analysisHistory, setAnalysisHistory] = useState([]);
@@ -160,7 +157,7 @@ function App() {
       return;
     }
     
-    const repsArray = actualReps.split(',').map(num => parseInt(num.trim(), 10));
+    const repsArray = actualReps.split(',').map(num => parseInt(num.trim(), 10)).filter(n => !isNaN(n));
     try {
       await fitnessApi.logWorkout({
         schedule_id: selectedScheduleId,
@@ -183,10 +180,7 @@ function App() {
     setShowCamera(false);
   };
 
-  const handleApplyBreathingReps = (reps) => {
-    setActualReps(prev => prev ? `${prev},${reps}` : `${reps}`);
-    setShowBreathing(false);
-  };
+
 
   // --- Chart Data Preparation ---
   // Strength Progress Chart: Track weight over weeks for the first logged exercise (simplified for MVP)
@@ -259,34 +253,17 @@ function App() {
           </div>
           <div style={{ flex: 2, minWidth: '300px', display: 'flex', gap: '8px', flexDirection: 'column' }}>
             <label>Quick AI Tools</label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button 
-                type="button" 
-                className="btn" 
-                style={{ flex: 1, background: '#818cf8', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
-                onClick={() => {
-                  setShowQuickCounter(!showQuickCounter);
-                  setShowQuickBreathing(false);
-                  setShowCamera(false);
-                  setShowBreathing(false);
-                }}
-              >
-                {showQuickCounter ? '❌ Close Camera' : '📷 Quick camera'}
-              </button>
-              <button 
-                type="button" 
-                className="btn" 
-                style={{ flex: 1, background: '#10b981', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
-                onClick={() => {
-                  setShowQuickBreathing(!showQuickBreathing);
-                  setShowQuickCounter(false);
-                  setShowCamera(false);
-                  setShowBreathing(false);
-                }}
-              >
-                {showQuickBreathing ? '❌ Close Breathing' : '💨 Quick breathing'}
-              </button>
-            </div>
+            <button 
+              type="button" 
+              className="btn" 
+              style={{ width: '100%', background: '#818cf8', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+              onClick={() => {
+                setShowQuickCounter(!showQuickCounter);
+                setShowCamera(false);
+              }}
+            >
+              {showQuickCounter ? '❌ Close Camera' : '📷 Quick camera'}
+            </button>
           </div>
         </div>
 
@@ -322,17 +299,7 @@ function App() {
         </div>
       )}
 
-      {showQuickBreathing && (
-        <div style={{ maxWidth: '450px', margin: '0 auto 24px auto' }} className="animate-fade-in">
-          <AIBreathingCounter 
-            onApplyCount={(count) => {
-              alert(`Reps Counted: ${count}!\n\nTo save this, select a program below, and click the "Open Breathing Counter" inside your logging form to apply it to a log.`);
-              setShowQuickBreathing(false);
-            }} 
-            onClose={() => setShowQuickBreathing(false)} 
-          />
-        </div>
-      )}
+
 
       {selectedProgramId && activeTab === 'manage' && (
         <div className="grid-layout animate-fade-in">
@@ -405,17 +372,9 @@ function App() {
                           type="button" 
                           className="btn" 
                           style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          onClick={() => { setShowCamera(!showCamera); setShowBreathing(false); }}
+                          onClick={() => { setShowCamera(!showCamera); }}
                         >
                           {showCamera ? '❌ Close Camera' : '📷 Open Camera'}
-                        </button>
-                        <button 
-                          type="button" 
-                          className="btn" 
-                          style={{ width: 'auto', padding: '4px 8px', fontSize: '0.8rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                          onClick={() => { setShowBreathing(!showBreathing); setShowCamera(false); }}
-                        >
-                          {showBreathing ? '❌ Close Breathing' : '💨 Open Breathing'}
                         </button>
                       </div>
                     </div>
@@ -429,12 +388,7 @@ function App() {
                     />
                   )}
 
-                  {showBreathing && (
-                    <AIBreathingCounter 
-                      onApplyCount={handleApplyBreathingReps} 
-                      onClose={() => setShowBreathing(false)} 
-                    />
-                  )}
+
                   <button type="submit" className="btn btn-success" style={{ marginTop: '10px' }}>Submit & Evaluate</button>
                 </form>
               </div>

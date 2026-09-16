@@ -39,8 +39,8 @@ const EXERCISE_CONFIGS = {
   },
   situp: {
     label: 'Sit-up',
-    // Right side: Shoulder(12) → Hip(24) → Ankle(28)
-    points: [12, 24, 28],
+    // Right side: Shoulder(12) → Hip(24) → Knee(26)
+    points: [12, 24, 26],
     startAngle: 155, // lying flat
     endAngle: 130, // sitting up
     direction: 'decreasing',
@@ -59,9 +59,9 @@ const EXERCISE_CONFIGS = {
   },
   overhead_press: {
     label: 'Overhead Press',
-    // Right side: Hip(24) → Shoulder(12) → Elbow(14)
-    points: [24, 12, 14],
-    startAngle: 100, // bar at shoulders
+    // Right side: Shoulder(12) → Elbow(14) → Wrist(16)
+    points: [12, 14, 16],
+    startAngle: 70, // bar at shoulders
     endAngle: 140, // arms pressed up
     direction: 'increasing',
     startMsg: 'Press up!',
@@ -79,8 +79,8 @@ const EXERCISE_CONFIGS = {
   },
   crunch: {
     label: 'Crunch',
-    // Right side: Shoulder(12) → Hip(24) → Ankle(28)
-    points: [12, 24, 28],
+    // Right side: Shoulder(12) → Hip(24) → Knee(26)
+    points: [12, 24, 26],
     startAngle: 160, // lying flat
     endAngle: 140, // crunched up
     direction: 'decreasing',
@@ -170,6 +170,9 @@ function AICameraCounter({ onApplyCount, onClose }) {
   };
 
   const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+    }
     if (cameraInstanceRef.current) {
       cameraInstanceRef.current.stop();
     }
@@ -231,13 +234,13 @@ function AICameraCounter({ onApplyCount, onClose }) {
           // Direction is 'increasing' because up_angle (160) > down_angle (110)
           if (angle > config.endAngle) {
             stageRef.current = 'up';
-            setFeedback(config.endMsg);
+            setFeedback(config.startMsg);
           }
           if (angle < config.startAngle && stageRef.current === 'up') {
             stageRef.current = 'down';
             repCountRef.current += 1;
             setRepCount(repCountRef.current);
-            setFeedback(config.startMsg);
+            setFeedback(config.endMsg);
           }
         }
       }
@@ -277,8 +280,8 @@ function AICameraCounter({ onApplyCount, onClose }) {
       }
     });
 
-    landmarks.forEach((lm) => {
-      if (lm.visibility > 0.5) {
+    landmarks.forEach((lm, index) => {
+      if (index > 10 && lm.visibility > 0.5) {
         ctx.beginPath();
         ctx.arc(width - (lm.x * width), lm.y * height, 5, 0, 2 * Math.PI);
         ctx.fill();

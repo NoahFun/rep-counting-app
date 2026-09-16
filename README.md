@@ -25,8 +25,6 @@ GymPulse is an intelligent web application designed to automatically track, coun
 
 - **📸 Computer Vision Rep Counting**
   Tracks 8 different exercises (Squats, Bicep Curls, Push-ups, etc.) by mapping 33 3D anatomical body keypoints using the device camera.
-- **🎧 Audio/Breathing Rep Counting**
-  A robust fallback for noisy gyms. Connect your AirPods, turn the screen off, and let the app count reps by detecting exertion spikes (grunts or sharp exhales) via the microphone.
 - **📊 Automated Analytics & Progression**
   Logs your performance and compares it against your customized target schedules. Automatically assigns PASS/FAIL scores and generates progressive overload recommendations.
 - **📈 Visual Progress Dashboard**
@@ -40,7 +38,6 @@ GymPulse is an intelligent web application designed to automatically track, coun
 - **React.js & Vite**: Fast, modern UI development.
 - **HTML5 Canvas**: For drawing live skeletal overlay networks on top of the webcam feed.
 - **Chart.js**: For interactive data visualization.
-- **Web Audio API**: For real-time decibel analysis and peak detection.
 
 ### Backend
 - **FastAPI (Python)**: High-performance async API for schedule management and workout evaluation logic.
