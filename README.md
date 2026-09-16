@@ -1,57 +1,102 @@
-# GymPulse (AI Fitness & Rep Counter)
+<div align="center">
+  <h1>💪 GymPulse (AI Fitness Analyzer)</h1>
+  <p><strong>AI-powered fitness tracking using real-time computer vision and audio exertion detection.</strong></p>
 
-GymPulse is an AI-powered fitness progress web application featuring real-time computer vision that automatically counts exercise reps across 8 movement types (Bicep Curls, Squats, Push-ups, Sit-ups, Lateral Raises, Pull-ups, Crunches, and Overhead Press) using angle-based joint trajectory tracking. 
+  <!-- Badges -->
+  <a href="https://reactjs.org/"><img src="https://img.shields.io/badge/Frontend-React-blue?style=flat-square&logo=react" alt="React" /></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square&logo=fastapi" alt="FastAPI" /></a>
+  <a href="https://supabase.com/"><img src="https://img.shields.io/badge/Database-Supabase-3ECF8E?style=flat-square&logo=supabase" alt="Supabase" /></a>
+  <a href="https://google.github.io/mediapipe/"><img src="https://img.shields.io/badge/AI-MediaPipe-orange?style=flat-square&logo=google" alt="MediaPipe" /></a>
+</div>
 
-For noisy environments or exercises where the camera is less ideal, it also includes an audio-based breathing detection feature as a camera-free alternative.
+<br />
 
-## Features
-- **Computer Vision Rep Counting**: Uses Google MediaPipe Pose (running directly on the client-side via WebAssembly) to detect 33 anatomical body keypoints and calculate joint angles in real time.
-- **Audio/Breathing Rep Counting**: A microphone-based fallback (using Web Audio API) that detects exertion (grunts or sharp exhales) with configurable sensitivity thresholds and cooldowns, perfect for when using AirPods with the screen off.
-- **Automated Workout Analysis**: Evaluates logged sets against target schedule rules (weight, sets, reps) to assign performance outcomes (PASS/FAIL) and generate automated progressive overload recommendations.
-- **Progress Dashboard**: Visualizes strength progression and completion rates over time using Chart.js.
+GymPulse is an intelligent web application designed to automatically track, count, and analyze your workout sessions. By leveraging **client-side machine learning**, the app evaluates your form and rep counts in real time, all without compromising your privacy.
 
-## Tech Stack
-- **Frontend**: React, Vite, Chart.js, HTML5 Canvas, Web Audio API
-- **Backend**: FastAPI (Python)
-- **Database**: Supabase (PostgreSQL)
-- **AI/ML**: Google MediaPipe Pose
+## 📋 Table of Contents
+- [✨ Key Features](#-key-features)
+- [🏗 Architecture & Tech Stack](#-architecture--tech-stack)
+- [🚀 Getting Started](#-getting-started)
+- [🧠 How the AI Works](#-how-the-ai-works)
 
-## Getting Started
+---
 
-### Backend Setup
-1. Navigate to the root directory and activate the virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/Scripts/activate  # Windows
-   ```
-2. Install requirements:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Set up your Supabase `.env` variables in the root directory:
-   ```env
-   SUPABASE_URL=your_url
-   SUPABASE_KEY=your_key
-   ```
-4. Run the FastAPI server:
-   ```bash
-   python backend/app/main.py
-   ```
+## ✨ Key Features
 
-### Frontend Setup
-1. Navigate to the `frontend` directory:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the Vite development server:
-   ```bash
-   npm run dev
-   ```
+- **📸 Computer Vision Rep Counting**
+  Tracks 8 different exercises (Squats, Bicep Curls, Push-ups, etc.) by mapping 33 3D anatomical body keypoints using the device camera.
+- **🎧 Audio/Breathing Rep Counting**
+  A robust fallback for noisy gyms. Connect your AirPods, turn the screen off, and let the app count reps by detecting exertion spikes (grunts or sharp exhales) via the microphone.
+- **📊 Automated Analytics & Progression**
+  Logs your performance and compares it against your customized target schedules. Automatically assigns PASS/FAIL scores and generates progressive overload recommendations.
+- **📈 Visual Progress Dashboard**
+  Interactive charts tracking your strength progression and completion rates over time.
 
-## Architecture Notes
-- The AI Pose estimation runs entirely on the client-side within the browser, ensuring user privacy (no video data is sent to the backend).
-- The state machine uses a 5-frame moving average smoothing filter to prevent sensor noise from causing false rep counts.
+---
+
+## 🏗 Architecture & Tech Stack
+
+### Frontend
+- **React.js & Vite**: Fast, modern UI development.
+- **HTML5 Canvas**: For drawing live skeletal overlay networks on top of the webcam feed.
+- **Chart.js**: For interactive data visualization.
+- **Web Audio API**: For real-time decibel analysis and peak detection.
+
+### Backend
+- **FastAPI (Python)**: High-performance async API for schedule management and workout evaluation logic.
+- **Supabase**: PostgreSQL database for persistent logging and user tracking.
+
+---
+
+## 🚀 Getting Started
+
+Follow these instructions to run the project locally.
+
+### 1. Backend Setup
+
+```bash
+# Navigate to project root and create a virtual environment
+python -m venv venv
+
+# Activate the virtual environment
+source venv/Scripts/activate  # (On Windows)
+# source venv/bin/activate    # (On Mac/Linux)
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+Create a `.env` file in the root directory with your Supabase credentials:
+```env
+SUPABASE_URL=your_supabase_url
+SUPABASE_KEY=your_supabase_anon_key
+```
+
+Start the FastAPI server:
+```bash
+python backend/app/main.py
+```
+*The API will be available at `http://localhost:8000`*
+
+### 2. Frontend Setup
+
+Open a new terminal window:
+```bash
+# Navigate to the frontend directory
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start the development server
+npm run dev
+```
+*The app will be available at `http://localhost:5173`*
+
+---
+
+## 🧠 How the AI Works
+
+1. **Privacy-First Pose Estimation**: The Google MediaPipe Pose neural network runs entirely inside your browser via WebAssembly. **No video data is ever sent to a server.**
+2. **Kinematic Math**: The app extracts the coordinates for specific joints (e.g., Hip, Knee, Ankle for squats) and calculates the internal angles using vector trigonometry. 
+3. **State Machine & Signal Processing**: The raw angle data is passed through a 5-frame moving average filter to eliminate sensor jitter. The smoothed angles trigger state transitions (e.g., `down` -> `up`) to register perfect repetitions.
