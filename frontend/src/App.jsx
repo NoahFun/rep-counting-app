@@ -1,463 +1,503 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { fitnessApi } from './api/client';
 import {
   Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
+  CategoryScale, LinearScale, PointElement,
+  LineElement, BarElement, Title, Tooltip, Legend,
 } from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
-import AICameraCounter from './AICameraCounter';
+import { Line } from 'react-chartjs-2';
+import AICameraCounter, { EXERCISE_CONFIGS } from './AICameraCounter';
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend
-);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend);
 
+// ── Constants ───────────────────────────────────────────────────────────────
+const EXERCISE_OPTIONS = Object.entries(EXERCISE_CONFIGS).map(([key, cfg]) => ({
+  key,
+  label: cfg.label,
+}));
+
+// ── App ──────────────────────────────────────────────────────────────────────
 function App() {
-  const [programs, setPrograms] = useState([]);
-  const [selectedProgramId, setSelectedProgramId] = useState('');
-  const [schedules, setSchedules] = useState([]);
+  // Navigation
+  const [activeTab, setActiveTab] = useState('counter'); // 'counter' | 'plan' | 'progress'
 
-  // Program Creation
-  const [newProgramName, setNewProgramName] = useState('');
+  // ── Plan Tab ──
+  const [plans, setPlans] = useState([]); // list of {id, program_id, exercise_name, target_sets, target_reps, target_weight, week}
+  const [planName, setPlanName] = useState('');
+  const [planExercise, setPlanExercise] = useState('bicep_curl');
+  const [planSets, setPlanSets] = useState('');
+  const [planReps, setPlanReps] = useState('');
+  const [planWeight, setPlanWeight] = useState('0');
 
-  // Schedule Creation
-  const [newExercise, setNewExercise] = useState('');
-  const [newWeek, setNewWeek] = useState(1);
-  const [newWeight, setNewWeight] = useState('');
-  const [newSets, setNewSets] = useState('');
-  const [newReps, setNewReps] = useState('');
+  // ── Counter Tab ──
+  const [selectedPlan, setSelectedPlan] = useState(null); // full plan object
+  // sessionState: 'idle' | 'active' | 'done'
+  const [sessionState, setSessionState] = useState('idle');
+  const [currentSet, setCurrentSet] = useState(1);
+  const [completedSets, setCompletedSets] = useState([]); // array of rep counts
+  const [liveReps, setLiveReps] = useState(0);
+  const [cameraResetKey, setCameraResetKey] = useState(0);
+  const [autoCamera, setAutoCamera] = useState(true); // user toggle: auto vs manual
 
-  // Workout Logging
-  const [selectedScheduleId, setSelectedScheduleId] = useState('');
-  const [logName, setLogName] = useState('');
-  const [actualWeight, setActualWeight] = useState('');
-  const [actualReps, setActualReps] = useState('');
-  const [showCamera, setShowCamera] = useState(false);
+  // ── Progress Tab ──
+  const [workoutHistory, setWorkoutHistory] = useState([]); // all logs across all plans
 
-  // Analysis & Dashboard
-  const [analysisHistory, setAnalysisHistory] = useState([]);
-
-  // Mobile tab navigation: 'counter' | 'log' | 'plan' | 'progress'
-  const [activeTab, setActiveTab] = useState('counter');
-
+  // ── Load ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    loadPrograms();
+    loadPlans();
+    loadHistory();
   }, []);
 
-  useEffect(() => {
-    if (selectedProgramId) {
-      loadSchedules(selectedProgramId);
-      loadDashboardData(selectedProgramId);
-    } else {
-      setSchedules([]);
-      setAnalysisHistory([]);
-    }
-  }, [selectedProgramId]);
-
-  const loadPrograms = async () => {
+  const loadPlans = async () => {
     try {
       const res = await fitnessApi.getPrograms();
-      setPrograms(res.data.data || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadSchedules = async (programId) => {
-    try {
-      const res = await fitnessApi.getSchedules(programId);
-      setSchedules(res.data.data || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadDashboardData = async (programId) => {
-    try {
-      const schedRes = await fitnessApi.getSchedules(programId);
-      const programSchedules = schedRes.data.data || [];
-      const results = await Promise.all(
-        programSchedules.map(sched => fitnessApi.getAnalysis(sched.id).then(res => ({
-          sched,
-          history: res.data?.history || []
-        })))
+      const programs = res.data.data || [];
+      // For each program, fetch its schedules — each schedule IS a plan
+      const allSchedules = await Promise.all(
+        programs.map(p =>
+          fitnessApi.getSchedules(p.id).then(r =>
+            (r.data.data || []).map(s => ({ ...s, programName: p.name }))
+          )
+        )
       );
-      let allLogs = [];
-      for (const { sched, history } of results) {
-        const tagged = history.map(h => ({
-          ...h,
-          exercise_name: sched.exercise_name,
-          week: sched.week,
-          target_weight: sched.target_weight
-        }));
-        allLogs = [...allLogs, ...tagged];
-      }
-      allLogs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setAnalysisHistory(allLogs);
+      setPlans(allSchedules.flat());
     } catch (err) {
-      console.error(err);
+      console.error('loadPlans:', err);
     }
   };
 
-  const handleCreateProgram = async (e) => {
-    e.preventDefault();
-    if (!newProgramName.trim()) return;
+  const loadHistory = async () => {
     try {
-      await fitnessApi.createProgram(newProgramName);
-      setNewProgramName('');
-      loadPrograms();
+      const res = await fitnessApi.getPrograms();
+      const programs = res.data.data || [];
+      const schedResults = await Promise.all(
+        programs.map(p =>
+          fitnessApi.getSchedules(p.id).then(r =>
+            (r.data.data || []).map(s => ({ ...s, programName: p.name }))
+          )
+        )
+      );
+      const schedules = schedResults.flat();
+
+      const analysisResults = await Promise.all(
+        schedules.map(s =>
+          fitnessApi.getAnalysis(s.id)
+            .then(r => (r.data?.history || []).map(h => ({
+              ...h,
+              exercise_name: s.exercise_name,
+              target_sets: s.target_sets,
+              target_reps: s.target_reps,
+              target_weight: s.target_weight,
+            })))
+            .catch(() => [])
+        )
+      );
+      const all = analysisResults.flat().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setWorkoutHistory(all);
     } catch (err) {
-      alert('Error creating program: ' + err.message);
+      console.error('loadHistory:', err);
     }
   };
 
-  const handleCreateSchedule = async (e) => {
+  // ── Plan Creation ─────────────────────────────────────────────────────────
+  const handleCreatePlan = async (e) => {
     e.preventDefault();
-    if (!selectedProgramId || !newExercise || !newWeight || !newSets || !newReps) {
-      alert('Please fill in all schedule fields');
-      return;
-    }
-    try {
-      await fitnessApi.createSchedule({
-        program_id: selectedProgramId,
-        week: parseInt(newWeek),
-        exercise_name: newExercise,
-        target_weight: parseFloat(newWeight),
-        target_sets: parseInt(newSets),
-        target_reps: parseInt(newReps)
-      });
-      setNewExercise('');
-      setNewWeight('');
-      setNewSets('');
-      setNewReps('');
-      loadSchedules(selectedProgramId);
-      alert('Schedule added!');
-    } catch (err) {
-      alert('Error adding schedule: ' + err.message);
-    }
-  };
-
-  const handleLogWorkout = async (e) => {
-    e.preventDefault();
-    if (!selectedScheduleId || !actualWeight || !actualReps) {
+    if (!planName.trim() || !planSets || !planReps) {
       alert('Please fill in all fields');
       return;
     }
-    const repsArray = actualReps.split(',').map(num => parseInt(num.trim(), 10)).filter(n => !isNaN(n));
     try {
-      await fitnessApi.logWorkout({
-        schedule_id: selectedScheduleId,
-        log_name: logName || `Session ${new Date().toLocaleDateString()}`,
-        actual_weight: parseFloat(actualWeight),
-        actual_reps: repsArray
+      // Create a program with the plan name, then add one schedule
+      const progRes = await fitnessApi.createProgram(planName.trim());
+      const programId = progRes.data?.data?.[0]?.id;
+      if (!programId) throw new Error('Could not create plan');
+
+      await fitnessApi.createSchedule({
+        program_id: programId,
+        week: 1,
+        exercise_name: planExercise,
+        target_weight: parseFloat(planWeight) || 0,
+        target_sets: parseInt(planSets),
+        target_reps: parseInt(planReps),
       });
-      setActualWeight('');
-      setActualReps('');
-      setLogName('');
-      loadDashboardData(selectedProgramId);
-      setActiveTab('progress');
+
+      setPlanName('');
+      setPlanSets('');
+      setPlanReps('');
+      setPlanWeight('0');
+      loadPlans();
+      alert(`Plan "${planName}" created!`);
     } catch (err) {
-      alert('Error saving log: ' + err.message);
+      alert('Error creating plan: ' + err.message);
     }
   };
 
-  const handleApplyCameraReps = (reps) => {
-    setActualReps(prev => prev ? `${prev},${reps}` : `${reps}`);
-    setShowCamera(false);
+  // ── Workout Session ───────────────────────────────────────────────────────
+  const startSession = () => {
+    if (!selectedPlan) { alert('Select a plan first'); return; }
+    setCurrentSet(1);
+    setCompletedSets([]);
+    setLiveReps(0);
+    setCameraResetKey(k => k + 1);
+    setSessionState('active');
   };
 
-  // Chart data
-  const strengthChartData = {
-    labels: analysisHistory.map(log => `W${log.week} ${log.exercise_name}`).reverse(),
+  const doneSet = () => {
+    if (liveReps < 1) return; // Q3: require at least 1 rep
+    const newSets = [...completedSets, liveReps];
+    setCompletedSets(newSets);
+    setLiveReps(0);
+
+    if (newSets.length >= selectedPlan.target_sets) {
+      // All sets done
+      setSessionState('done');
+    } else {
+      setCurrentSet(s => s + 1);
+      setCameraResetKey(k => k + 1); // reset counter for next set
+    }
+  };
+
+  const finishWorkout = async () => {
+    try {
+      await fitnessApi.logWorkout({
+        schedule_id: selectedPlan.id,
+        log_name: `Session ${new Date().toLocaleDateString()}`,
+        actual_weight: selectedPlan.target_weight,
+        actual_reps: completedSets,
+      });
+      setSessionState('idle');
+      setCompletedSets([]);
+      setCurrentSet(1);
+      await loadHistory();
+      setActiveTab('progress');
+    } catch (err) {
+      alert('Error saving workout: ' + err.message);
+    }
+  };
+
+  const cancelSession = () => {
+    setSessionState('idle');
+    setCompletedSets([]);
+    setCurrentSet(1);
+    setLiveReps(0);
+  };
+
+  // ── Chart Data ────────────────────────────────────────────────────────────
+  const chartData = {
+    labels: workoutHistory.map(l => new Date(l.created_at).toLocaleDateString()).reverse(),
     datasets: [{
-      label: 'Weight (kg)',
-      data: analysisHistory.map(log => log.actual_weight ?? log.target_weight).reverse(),
+      label: 'Total Reps',
+      data: workoutHistory.map(l => (l.actual_reps || []).reduce((a, b) => a + b, 0)).reverse(),
       borderColor: '#6366f1',
-      backgroundColor: 'rgba(99,102,241,0.2)',
+      backgroundColor: 'rgba(99,102,241,0.15)',
       tension: 0.4,
-    }],
-  };
-
-  const passedCount = analysisHistory.filter(log => log.status === 'PASS').length;
-  const failedCount = analysisHistory.filter(log => log.status === 'FAIL').length;
-  const completionChartData = {
-    labels: ['PASSED', 'NOT READY'],
-    datasets: [{
-      label: 'Sessions',
-      data: [passedCount, failedCount],
-      backgroundColor: ['rgba(16,185,129,0.8)', 'rgba(239,68,68,0.8)'],
-      borderWidth: 0,
+      fill: true,
     }],
   };
 
   const chartOptions = {
     responsive: true,
-    plugins: { legend: { position: 'top' } },
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true } },
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app-shell">
 
-      {/* ── Sticky Top Header ── */}
+      {/* ── Header ── */}
       <header className="app-header">
         <div className="app-header-title">💪 GymPulse</div>
-        <div className="app-header-subtitle">AI-Powered Rep Counter & Progress Tracker</div>
+        <div className="app-header-subtitle">AI-Powered Rep Counter</div>
       </header>
 
-      {/* ── Scrollable Page Content ── */}
+      {/* ── Content ── */}
       <main className="app-content animate-fade-in">
 
-        {/* ══════════════════════════════
-            TAB: COUNTER (AI Camera)
-        ══════════════════════════════ */}
+        {/* ══════════════════════════════════════════
+            TAB: COUNTER
+        ══════════════════════════════════════════ */}
         {activeTab === 'counter' && (
           <div>
-            <p className="section-label">AI Rep Counter</p>
-            <AICameraCounter
-              onApplyCount={(count) => {
-                setActualReps(prev => prev ? `${prev},${count}` : `${count}`);
-                alert(`✅ ${count} reps saved! Go to the Log tab to submit your session.`);
-              }}
-              onClose={() => {}}
-            />
-          </div>
-        )}
 
-        {/* ══════════════════════════════
-            TAB: LOG WORKOUT
-        ══════════════════════════════ */}
-        {activeTab === 'log' && (
-          <div>
-            {/* Program picker */}
-            <p className="section-label">Program</p>
-            <div className="card">
-              <div className="input-group" style={{ marginBottom: 8 }}>
-                <label>Select Program</label>
-                <select value={selectedProgramId} onChange={(e) => setSelectedProgramId(e.target.value)}>
-                  <option value="">-- Choose Program --</option>
-                  {programs.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <form onSubmit={handleCreateProgram} style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="New program name…"
-                  value={newProgramName}
-                  onChange={(e) => setNewProgramName(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto', padding: '0 16px' }}>
-                  Add
-                </button>
-              </form>
-            </div>
-
-            {/* Log workout form */}
-            {selectedProgramId && (
+            {/* IDLE — Plan selector */}
+            {sessionState === 'idle' && (
               <>
-                <p className="section-label">Log Session</p>
-                {schedules.length === 0 ? (
-                  <div className="card">
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                      No schedules yet. Go to Plan tab to add one.
+                <p className="section-label">Today's Workout</p>
+                <div className="card">
+                  {plans.length === 0 ? (
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'center', padding: '12px 0' }}>
+                      No plans yet. Go to Plan tab to create one 👉
                     </p>
-                  </div>
-                ) : (
-                  <div className="card">
-                    <form onSubmit={handleLogWorkout}>
-                      <div className="input-group">
-                        <label>Exercise Target</label>
-                        <select value={selectedScheduleId} onChange={(e) => setSelectedScheduleId(e.target.value)}>
-                          <option value="">-- Choose Target --</option>
-                          {schedules.map(s => (
-                            <option key={s.id} value={s.id}>
-                              W{s.week}: {s.exercise_name} ({s.target_sets}×{s.target_reps} @ {s.target_weight}kg)
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="input-group">
-                        <label>Session Name (optional)</label>
-                        <input type="text" placeholder="e.g., Day 1 Morning" value={logName} onChange={(e) => setLogName(e.target.value)} />
-                      </div>
-                      <div className="input-group">
-                        <label>Weight Lifted (kg)</label>
-                        <input type="number" step="0.5" placeholder="e.g., 40" value={actualWeight} onChange={(e) => setActualWeight(e.target.value)} />
-                      </div>
-                      <div className="input-group">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                          <label style={{ margin: 0 }}>Reps per Set (comma separated)</label>
-                          <button
-                            type="button"
-                            className="btn btn-sm"
-                            style={{ background: '#6366f1', color: 'white' }}
-                            onClick={() => setActiveTab('counter')}
-                          >
-                            📷 Count
-                          </button>
+                  ) : (
+                    <>
+                      <label>Select Plan</label>
+                      <select
+                        value={selectedPlan?.id || ''}
+                        onChange={(e) => {
+                          const p = plans.find(x => x.id === parseInt(e.target.value) || x.id === e.target.value);
+                          setSelectedPlan(p || null);
+                        }}
+                        style={{ marginBottom: 14 }}
+                      >
+                        <option value="">-- Choose a plan --</option>
+                        {plans.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.programName} — {p.exercise_name} ({p.target_sets}×{p.target_reps})
+                          </option>
+                        ))}
+                      </select>
+
+                      {selectedPlan && (
+                        <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '12px 14px', marginBottom: 14, fontSize: '0.88rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Exercise</span>
+                            <strong>{EXERCISE_CONFIGS[selectedPlan.exercise_name]?.label || selectedPlan.exercise_name}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>Target</span>
+                            <strong>{selectedPlan.target_sets} sets × {selectedPlan.target_reps} reps</strong>
+                          </div>
+                          {selectedPlan.target_weight > 0 && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>Weight</span>
+                              <strong>{selectedPlan.target_weight} kg</strong>
+                            </div>
+                          )}
                         </div>
-                        <input
-                          type="text"
-                          placeholder="e.g., 10,10,8"
-                          value={actualReps}
-                          onChange={(e) => setActualReps(e.target.value)}
-                        />
+                      )}
+
+                      {/* Auto / Manual camera toggle */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                        <span>Camera:</span>
+                        <button
+                          onClick={() => setAutoCamera(a => !a)}
+                          style={{
+                            padding: '4px 12px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                            background: autoCamera ? '#6366f1' : 'var(--bg-secondary)',
+                            color: autoCamera ? '#fff' : 'var(--text-secondary)',
+                            fontWeight: 600, fontSize: '0.8rem',
+                          }}
+                        >
+                          {autoCamera ? '⚡ Auto' : '🖐 Manual'}
+                        </button>
                       </div>
-                      <button type="submit" className="btn btn-success">Submit & Evaluate</button>
-                    </form>
-                  </div>
-                )}
+
+                      <button
+                        className="btn btn-primary"
+                        onClick={startSession}
+                        disabled={!selectedPlan}
+                      >
+                        🚀 Start Workout
+                      </button>
+                    </>
+                  )}
+                </div>
               </>
             )}
-          </div>
-        )}
 
-        {/* ══════════════════════════════
-            TAB: PLAN (Schedule Builder)
-        ══════════════════════════════ */}
-        {activeTab === 'plan' && (
-          <div>
-            {/* Program picker */}
-            <p className="section-label">Program</p>
-            <div className="card">
-              <div className="input-group" style={{ marginBottom: 8 }}>
-                <label>Active Program</label>
-                <select value={selectedProgramId} onChange={(e) => setSelectedProgramId(e.target.value)}>
-                  <option value="">-- Choose Program --</option>
-                  {programs.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <form onSubmit={handleCreateProgram} style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="New program name…"
-                  value={newProgramName}
-                  onChange={(e) => setNewProgramName(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto', padding: '0 16px' }}>
-                  Add
-                </button>
-              </form>
-            </div>
-
-            {selectedProgramId && (
+            {/* ACTIVE — Workout in progress */}
+            {sessionState === 'active' && selectedPlan && (
               <>
-                <p className="section-label">Add Schedule Rule</p>
-                <div className="card">
-                  <form onSubmit={handleCreateSchedule}>
-                    <div className="input-group">
-                      <label>Exercise Name</label>
-                      <input type="text" placeholder="e.g., Bench Press" value={newExercise} onChange={(e) => setNewExercise(e.target.value)} />
+                {/* Progress banner */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+                  borderRadius: 14, padding: '14px 16px', marginBottom: 12,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <div>
+                    <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem', marginBottom: 2 }}>
+                      {EXERCISE_CONFIGS[selectedPlan.exercise_name]?.label}
                     </div>
-                    <div className="input-group">
-                      <label>Week Number</label>
-                      <input type="number" min="1" value={newWeek} onChange={(e) => setNewWeek(e.target.value)} />
+                    <div style={{ color: '#fff', fontWeight: 800, fontSize: '1.1rem' }}>
+                      Set {currentSet} of {selectedPlan.target_sets}
                     </div>
-                    <div className="input-group">
-                      <label>Target Weight (kg)</label>
-                      <input type="number" step="0.5" placeholder="40" value={newWeight} onChange={(e) => setNewWeight(e.target.value)} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '10px' }} className="input-group">
-                      <div style={{ flex: 1 }}>
-                        <label>Sets</label>
-                        <input type="number" placeholder="5" value={newSets} onChange={(e) => setNewSets(e.target.value)} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <label>Reps/Set</label>
-                        <input type="number" placeholder="10" value={newReps} onChange={(e) => setNewReps(e.target.value)} />
-                      </div>
-                    </div>
-                    <button type="submit" className="btn btn-primary">Add Schedule</button>
-                  </form>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.75rem' }}>This set</div>
+                    <div style={{ color: '#00ffcc', fontWeight: 800, fontSize: '1.4rem' }}>{liveReps}</div>
+                  </div>
                 </div>
 
-                {schedules.length > 0 && (
-                  <>
-                    <p className="section-label">Current Schedule</p>
-                    {schedules.map(s => (
-                      <div key={s.id} className="log-item">
-                        <div style={{ fontWeight: 700, marginBottom: 2 }}>{s.exercise_name}</div>
-                        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                          Week {s.week} · {s.target_sets}×{s.target_reps} @ {s.target_weight}kg
-                        </div>
+                {/* Completed sets tracker */}
+                {completedSets.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                    {completedSets.map((reps, i) => (
+                      <div key={i} style={{
+                        background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)',
+                        borderRadius: 8, padding: '6px 10px', textAlign: 'center', minWidth: 50,
+                      }}>
+                        <div style={{ fontSize: '0.65rem', color: '#6ee7b7' }}>Set {i + 1}</div>
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: '#34d399' }}>{reps}</div>
                       </div>
                     ))}
-                  </>
+                    <div style={{
+                      background: 'rgba(99,102,241,0.1)', border: '1px dashed rgba(99,102,241,0.4)',
+                      borderRadius: 8, padding: '6px 10px', textAlign: 'center', minWidth: 50,
+                    }}>
+                      <div style={{ fontSize: '0.65rem', color: '#818cf8' }}>Set {currentSet}</div>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: '#818cf8' }}>…</div>
+                    </div>
+                  </div>
                 )}
+
+                {/* Total reps so far */}
+                <div style={{ textAlign: 'center', marginBottom: 10, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Total reps done: <strong style={{ color: 'var(--text-primary)' }}>
+                    {completedSets.reduce((a, b) => a + b, 0) + liveReps}
+                  </strong>
+                  {selectedPlan.target_weight > 0 && (
+                    <span> · Weight: <strong style={{ color: 'var(--text-primary)' }}>{selectedPlan.target_weight}kg</strong></span>
+                  )}
+                </div>
+
+                {/* Camera */}
+                <AICameraCounter
+                  exerciseLocked={selectedPlan.exercise_name}
+                  autoStart={autoCamera}
+                  resetKey={cameraResetKey}
+                  onRepUpdate={setLiveReps}
+                />
+
+                {/* Done Set / Cancel */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button
+                    className="btn btn-success"
+                    onClick={doneSet}
+                    disabled={liveReps < 1}
+                    style={{ flex: 2 }}
+                  >
+                    ✅ Done Set ({liveReps} reps)
+                  </button>
+                  <button
+                    onClick={cancelSession}
+                    style={{
+                      flex: 1, background: 'rgba(239,68,68,0.15)', color: '#f87171',
+                      border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10,
+                      padding: 13, cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </>
             )}
+
+            {/* DONE — Workout complete */}
+            {sessionState === 'done' && selectedPlan && (
+              <>
+                <div style={{
+                  background: 'linear-gradient(135deg, #059669, #10b981)',
+                  borderRadius: 14, padding: '20px 16px', marginBottom: 14, textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: '2.5rem' }}>🎉</div>
+                  <div style={{ color: '#fff', fontWeight: 800, fontSize: '1.2rem', marginTop: 6 }}>
+                    Workout Complete!
+                  </div>
+                  <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem', marginTop: 4 }}>
+                    {completedSets.length} sets · {completedSets.reduce((a, b) => a + b, 0)} total reps
+                  </div>
+                </div>
+
+                <p className="section-label">Set Breakdown</p>
+                <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {completedSets.map((reps, i) => (
+                    <div key={i} style={{
+                      background: 'var(--bg-secondary)', borderRadius: 10, padding: '10px 14px',
+                      textAlign: 'center', flex: '1 1 60px',
+                    }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Set {i + 1}</div>
+                      <div style={{ fontWeight: 800, fontSize: '1.3rem' }}>{reps}</div>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>reps</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-success" onClick={finishWorkout} style={{ flex: 2 }}>
+                    💾 Save & View Progress
+                  </button>
+                  <button
+                    onClick={cancelSession}
+                    style={{
+                      flex: 1, background: 'transparent', color: 'var(--text-secondary)',
+                      border: '1px solid var(--border)', borderRadius: 10,
+                      padding: 13, cursor: 'pointer', fontSize: '0.85rem',
+                    }}
+                  >
+                    Discard
+                  </button>
+                </div>
+              </>
+            )}
+
           </div>
         )}
 
-        {/* ══════════════════════════════
-            TAB: PROGRESS (Dashboard)
-        ══════════════════════════════ */}
-        {activeTab === 'progress' && (
+        {/* ══════════════════════════════════════════
+            TAB: PLAN
+        ══════════════════════════════════════════ */}
+        {activeTab === 'plan' && (
           <div>
-            {!selectedProgramId ? (
-              <div className="card" style={{ textAlign: 'center', padding: '32px 16px' }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📊</div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                  Select a program from the Log or Plan tab to see your progress.
-                </p>
-              </div>
-            ) : analysisHistory.length === 0 ? (
-              <div className="card" style={{ textAlign: 'center', padding: '32px 16px' }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🏋️</div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                  No logs yet. Log your first session to see your progress here!
-                </p>
-              </div>
-            ) : (
+            <p className="section-label">Create Workout Plan</p>
+            <div className="card">
+              <form onSubmit={handleCreatePlan}>
+                <div className="input-group">
+                  <label>Plan Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g., Morning Push Day"
+                    value={planName}
+                    onChange={e => setPlanName(e.target.value)}
+                  />
+                </div>
+                <div className="input-group">
+                  <label>Exercise</label>
+                  <select value={planExercise} onChange={e => setPlanExercise(e.target.value)}>
+                    {EXERCISE_OPTIONS.map(({ key, label }) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }} className="input-group">
+                  <div style={{ flex: 1 }}>
+                    <label>Sets</label>
+                    <input type="number" min="1" placeholder="5" value={planSets} onChange={e => setPlanSets(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label>Reps / Set</label>
+                    <input type="number" min="1" placeholder="10" value={planReps} onChange={e => setPlanReps(e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label>Weight (kg)</label>
+                    <input type="number" min="0" step="0.5" placeholder="0" value={planWeight} onChange={e => setPlanWeight(e.target.value)} />
+                  </div>
+                </div>
+                <button type="submit" className="btn btn-primary">+ Create Plan</button>
+              </form>
+            </div>
+
+            {plans.length > 0 && (
               <>
-                <p className="section-label">Strength Progression</p>
-                <div className="card">
-                  <Line options={chartOptions} data={strengthChartData} />
-                </div>
-
-                <p className="section-label">Completion Rate</p>
-                <div className="card">
-                  <Bar options={chartOptions} data={completionChartData} />
-                </div>
-
-                <p className="section-label">Session History</p>
-                {analysisHistory.map(log => (
-                  <div key={log.id} className="log-item">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{log.log_name}</div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                          W{log.week} · {log.exercise_name}
-                        </div>
+                <p className="section-label">My Plans</p>
+                {plans.map(p => (
+                  <div key={p.id} className="log-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{p.programName}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 2 }}>
+                        {EXERCISE_CONFIGS[p.exercise_name]?.label || p.exercise_name} · {p.target_sets}×{p.target_reps}{p.target_weight > 0 ? ` @ ${p.target_weight}kg` : ''}
                       </div>
-                      <span className={`badge ${log.status === 'PASS' ? 'badge-pass' : 'badge-fail'}`}>
-                        {log.status === 'PASS' ? '✅ PASS' : '❌ NOT READY'}
-                      </span>
                     </div>
-                    <div style={{ fontSize: '0.82rem', marginTop: 10, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      💡 {log.recommendation}
-                    </div>
-                    <div style={{ fontSize: '0.72rem', opacity: 0.5, marginTop: 6 }}>
-                      {new Date(log.created_at).toLocaleDateString()}
-                    </div>
+                    <button
+                      onClick={() => { setSelectedPlan(p); setActiveTab('counter'); }}
+                      style={{
+                        background: '#6366f1', color: '#fff', border: 'none',
+                        borderRadius: 8, padding: '7px 12px', cursor: 'pointer',
+                        fontSize: '0.8rem', fontWeight: 700,
+                      }}
+                    >
+                      Start →
+                    </button>
                   </div>
                 ))}
               </>
@@ -465,17 +505,88 @@ function App() {
           </div>
         )}
 
+        {/* ══════════════════════════════════════════
+            TAB: PROGRESS
+        ══════════════════════════════════════════ */}
+        {activeTab === 'progress' && (
+          <div>
+            {workoutHistory.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '48px 16px' }}>
+                <div style={{ fontSize: '3rem', marginBottom: 12 }}>📊</div>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                  Complete a workout to see your progress here!
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="section-label">Total Reps Over Time</p>
+                <div className="card">
+                  <Line options={chartOptions} data={chartData} />
+                </div>
+
+                <p className="section-label">Session History</p>
+                {/* Table header */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1.2fr 0.7fr 0.7fr 0.6fr',
+                  gap: 4, padding: '8px 12px',
+                  fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-secondary)',
+                  textTransform: 'uppercase', letterSpacing: '0.06em',
+                }}>
+                  <span>Date</span>
+                  <span>Exercise</span>
+                  <span style={{ textAlign: 'center' }}>Sets</span>
+                  <span style={{ textAlign: 'center' }}>Reps</span>
+                  <span style={{ textAlign: 'center' }}>Result</span>
+                </div>
+
+                {workoutHistory.map(log => {
+                  const repsArr = Array.isArray(log.actual_reps) ? log.actual_reps : [];
+                  const totalReps = repsArr.reduce((a, b) => a + b, 0);
+                  const setsDone = repsArr.length;
+                  return (
+                    <div key={log.id} style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1.2fr 0.7fr 0.7fr 0.6fr',
+                      gap: 4, padding: '12px',
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 10, marginBottom: 6,
+                      alignItems: 'center',
+                    }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        {new Date(log.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                      </span>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>
+                        {log.exercise_name}
+                      </span>
+                      <span style={{ textAlign: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                        {setsDone}/{log.target_sets}
+                      </span>
+                      <span style={{ textAlign: 'center', fontSize: '0.85rem', fontWeight: 700 }}>
+                        {totalReps}
+                      </span>
+                      <span style={{ textAlign: 'center' }}>
+                        <span className={`badge ${log.status === 'PASS' ? 'badge-pass' : 'badge-fail'}`}
+                          style={{ fontSize: '0.65rem', padding: '3px 6px' }}>
+                          {log.status === 'PASS' ? '✅' : '❌'}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        )}
+
       </main>
 
-      {/* ── Fixed Bottom Tab Bar ── */}
+      {/* ── Bottom Tab Bar ── */}
       <nav className="tab-bar">
         <button className={`tab-btn ${activeTab === 'counter' ? 'active' : ''}`} onClick={() => setActiveTab('counter')}>
           <span className="tab-btn-icon">📷</span>
-          Counter
-        </button>
-        <button className={`tab-btn ${activeTab === 'log' ? 'active' : ''}`} onClick={() => setActiveTab('log')}>
-          <span className="tab-btn-icon">✍️</span>
-          Log
+          Workout
         </button>
         <button className={`tab-btn ${activeTab === 'plan' ? 'active' : ''}`} onClick={() => setActiveTab('plan')}>
           <span className="tab-btn-icon">📋</span>

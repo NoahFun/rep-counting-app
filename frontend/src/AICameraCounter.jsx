@@ -9,131 +9,144 @@ import React, { useEffect, useRef, useState } from 'react';
 const EXERCISE_CONFIGS = {
   bicep_curl: {
     label: 'Bicep Curl',
-    // Right side: Shoulder(12) → Elbow(14) → Wrist(16)
     points: [12, 14, 16],
-    startAngle: 150, // arm extended
-    endAngle: 60, // arm curled
-    direction: 'decreasing', 
+    startAngle: 150,
+    endAngle: 60,
+    direction: 'decreasing',
     startMsg: 'Lift the weight!',
     endMsg: 'Good rep! Lower slowly',
   },
   squat: {
     label: 'Squat',
-    // Right side: Hip(24) → Knee(26) → Ankle(28)
     points: [24, 26, 28],
-    startAngle: 120, // bottom of squat
-    endAngle: 150, // standing up
+    startAngle: 120,
+    endAngle: 150,
     direction: 'increasing',
     startMsg: 'Squat down!',
     endMsg: 'Great squat!',
   },
   pushup: {
     label: 'Push-up',
-    // Right side: Shoulder(12) → Elbow(14) → Wrist(16)
     points: [12, 14, 16],
-    startAngle: 120, // bottom of pushup
-    endAngle: 150, // arms straight
+    startAngle: 120,
+    endAngle: 150,
     direction: 'increasing',
     startMsg: 'Go down!',
     endMsg: 'Good push-up!',
   },
   situp: {
     label: 'Sit-up',
-    // Right side: Shoulder(12) → Hip(24) → Knee(26)
     points: [12, 24, 26],
-    startAngle: 155, // lying flat
-    endAngle: 130, // sitting up
+    startAngle: 155,
+    endAngle: 130,
     direction: 'decreasing',
     startMsg: 'Sit up!',
     endMsg: 'Good sit-up!',
   },
   lateral_raise: {
     label: 'Lateral Raise',
-    // Right side: Hip(24) → Shoulder(12) → Elbow(14)
     points: [24, 12, 14],
-    startAngle: 30, // arms down
-    endAngle: 80, // arms raised
+    startAngle: 30,
+    endAngle: 80,
     direction: 'increasing',
     startMsg: 'Raise your arms!',
     endMsg: 'Good raise!',
   },
   overhead_press: {
     label: 'Overhead Press',
-    // Right side: Shoulder(12) → Elbow(14) → Wrist(16)
     points: [12, 14, 16],
-    startAngle: 70, // bar at shoulders
-    endAngle: 140, // arms pressed up
+    startAngle: 70,
+    endAngle: 140,
     direction: 'increasing',
     startMsg: 'Press up!',
     endMsg: 'Good press!',
   },
   pullup: {
     label: 'Pull-up',
-    // Right side: Shoulder(12) → Elbow(14) → Wrist(16)
     points: [12, 14, 16],
-    startAngle: 140, // hanging
-    endAngle: 70, // pulled up
+    startAngle: 140,
+    endAngle: 70,
     direction: 'decreasing',
     startMsg: 'Pull up!',
     endMsg: 'Good pull-up!',
   },
   crunch: {
     label: 'Crunch',
-    // Right side: Shoulder(12) → Hip(24) → Knee(26)
     points: [12, 24, 26],
-    startAngle: 160, // lying flat
-    endAngle: 140, // crunched up
+    startAngle: 160,
+    endAngle: 140,
     direction: 'decreasing',
     startMsg: 'Crunch up!',
     endMsg: 'Good crunch!',
   },
 };
 
-function AICameraCounter({ onApplyCount, onClose }) {
+export { EXERCISE_CONFIGS };
+
+/**
+ * Props:
+ *  onApplyCount(reps)  — called when user presses "Use Count" (optional)
+ *  onRepUpdate(reps)   — called live on every new rep (optional)
+ *  resetKey            — increment this number to reset counter to 0
+ *  autoStart           — start camera immediately on mount (default false)
+ *  exerciseLocked      — exercise key string; if set, hides the dropdown
+ */
+function AICameraCounter({ onApplyCount, onClose, onRepUpdate, resetKey = 0, autoStart = false, exerciseLocked = null }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const [exercise, setExercise] = useState('bicep_curl');
+  const [exercise, setExercise] = useState(exerciseLocked || 'bicep_curl');
   const [repCount, setRepCount] = useState(0);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [feedback, setFeedback] = useState('Stand in frame');
 
-  // Using refs so the camera callback always reads the latest values
   const repCountRef = useRef(0);
   const stageRef = useRef(null);
-  const exerciseRef = useRef('bicep_curl'); 
+  const exerciseRef = useRef(exerciseLocked || 'bicep_curl');
   const cameraInstanceRef = useRef(null);
   const poseInstanceRef = useRef(null);
   const angleHistoryRef = useRef([]);
+  const onRepUpdateRef = useRef(onRepUpdate);
 
+  useEffect(() => { onRepUpdateRef.current = onRepUpdate; }, [onRepUpdate]);
+
+  // Sync exercise ref when dropdown changes
   useEffect(() => {
     exerciseRef.current = exercise;
-    stageRef.current = null; 
-    angleHistoryRef.current = []; // clear history when switching exercises
+    stageRef.current = null;
+    angleHistoryRef.current = [];
   }, [exercise]);
 
-  const calculateAngle = (a, b, c) => {
-    const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-    let angle = Math.abs((radians * 180.0) / Math.PI);
-    if (angle > 180.0) angle = 360 - angle;
-    return angle;
-  };
+  // Reset counter when resetKey changes (parent triggers this between sets)
+  useEffect(() => {
+    repCountRef.current = 0;
+    setRepCount(0);
+    stageRef.current = null;
+    angleHistoryRef.current = [];
+  }, [resetKey]);
 
-  const smoothAngle = (angle) => {
-    angleHistoryRef.current.push(angle);
-    if (angleHistoryRef.current.length > 5) {
-      angleHistoryRef.current.shift();
+  // Auto-start or cleanup on unmount
+  useEffect(() => {
+    if (!window.Pose || !window.Camera) {
+      setFeedback('⚠️ MediaPipe failed to load. Check index.html script tags.');
+      return;
     }
-    const sum = angleHistoryRef.current.reduce((a, b) => a + b, 0);
-    return sum / angleHistoryRef.current.length;
-  };
+    if (autoStart) {
+      const t = setTimeout(() => startCamera(), 400);
+      return () => {
+        clearTimeout(t);
+        stopCamera();
+      };
+    }
+    return () => stopCamera();
+  }, []);
 
+  // ── Camera & Pose ──────────────────────────────────────
   const startCamera = () => {
     if (!videoRef.current || !canvasRef.current) return;
 
     const pose = new window.Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
     });
-
     pose.setOptions({
       modelComplexity: 2,
       smoothLandmarks: true,
@@ -142,15 +155,12 @@ function AICameraCounter({ onApplyCount, onClose }) {
       minDetectionConfidence: 0.6,
       minTrackingConfidence: 0.6,
     });
-
     pose.onResults(onResults);
     poseInstanceRef.current = pose;
 
     const camera = new window.Camera(videoRef.current, {
       onFrame: async () => {
-        if (videoRef.current) {
-          await pose.send({ image: videoRef.current });
-        }
+        if (videoRef.current) await pose.send({ image: videoRef.current });
       },
       width: 640,
       height: 480,
@@ -159,10 +169,10 @@ function AICameraCounter({ onApplyCount, onClose }) {
     camera.start()
       .then(() => {
         setIsCameraActive(true);
-        setFeedback('Camera loaded. Position your body!');
+        setFeedback('Camera ready — position yourself!');
       })
       .catch((err) => {
-        console.error("Camera start error:", err);
+        console.error('Camera start error:', err);
         setFeedback('Failed to access camera.');
       });
 
@@ -170,120 +180,105 @@ function AICameraCounter({ onApplyCount, onClose }) {
   };
 
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(t => t.stop());
     }
-    if (cameraInstanceRef.current) {
-      cameraInstanceRef.current.stop();
-    }
-    if (poseInstanceRef.current) {
-      poseInstanceRef.current.close();
-    }
+    cameraInstanceRef.current?.stop();
+    poseInstanceRef.current?.close();
     setIsCameraActive(false);
     setFeedback('Camera stopped');
   };
 
+  // ── Angle Math ──────────────────────────────────────────
+  const calculateAngle = (a, b, c) => {
+    const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+    let angle = Math.abs((radians * 180) / Math.PI);
+    if (angle > 180) angle = 360 - angle;
+    return angle;
+  };
+
+  const smoothAngle = (angle) => {
+    angleHistoryRef.current.push(angle);
+    if (angleHistoryRef.current.length > 5) angleHistoryRef.current.shift();
+    return angleHistoryRef.current.reduce((a, b) => a + b, 0) / angleHistoryRef.current.length;
+  };
+
+  // ── MediaPipe Callback ──────────────────────────────────
   const onResults = (results) => {
     if (!canvasRef.current || !videoRef.current) return;
 
-    const canvasCtx = canvasRef.current.getContext('2d');
-    const width = canvasRef.current.width;
-    const height = canvasRef.current.height;
+    const ctx = canvasRef.current.getContext('2d');
+    const w = canvasRef.current.width;
+    const h = canvasRef.current.height;
 
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, width, height);
-    canvasCtx.translate(width, 0);
-    canvasCtx.scale(-1, 1);
-    canvasCtx.drawImage(results.image, 0, 0, width, height);
-    canvasCtx.restore();
+    ctx.save();
+    ctx.clearRect(0, 0, w, h);
+    ctx.translate(w, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(results.image, 0, 0, w, h);
+    ctx.restore();
 
-    if (results.poseLandmarks) {
-      const landmarks = results.poseLandmarks;
+    if (!results.poseLandmarks) return;
+    const lms = results.poseLandmarks;
+    drawSkeleton(ctx, lms, w, h);
 
-      drawSkeleton(canvasCtx, landmarks, width, height);
+    const config = EXERCISE_CONFIGS[exerciseRef.current];
+    if (!config) return;
 
-      const config = EXERCISE_CONFIGS[exerciseRef.current];
-      if (!config) return;
+    const [i1, i2, i3] = config.points;
+    const p1 = lms[i1], p2 = lms[i2], p3 = lms[i3];
+    if (p1.visibility < 0.4 || p2.visibility < 0.4 || p3.visibility < 0.4) return;
 
-      const [i1, i2, i3] = config.points;
-      const pt1 = landmarks[i1];
-      const pt2 = landmarks[i2]; 
-      const pt3 = landmarks[i3];
+    const angle = smoothAngle(calculateAngle(p1, p2, p3));
+    drawAngleText(ctx, angle, p2, w, h);
 
-      if (pt1.visibility > 0.4 && pt2.visibility > 0.4 && pt3.visibility > 0.4) {
-        const rawAngle = calculateAngle(pt1, pt2, pt3);
-        const angle = smoothAngle(rawAngle);
+    const addRep = () => {
+      repCountRef.current += 1;
+      setRepCount(repCountRef.current);
+      onRepUpdateRef.current?.(repCountRef.current);
+    };
 
-        drawAngleText(canvasCtx, angle, pt2, width, height);
-
-        if (config.direction === 'decreasing') {
-          // Bicep Curl, Pull-up, Sit-up, Crunch
-          if (angle > config.startAngle) {
-            stageRef.current = 'down';
-            setFeedback(config.startMsg);
-          }
-          if (angle < config.endAngle && stageRef.current === 'down') {
-            stageRef.current = 'up';
-            repCountRef.current += 1;
-            setRepCount(repCountRef.current);
-            setFeedback(config.endMsg);
-          }
-        } else {
-          // Squat, Push-up, Lateral Raise, Overhead Press
-          // Good-GYM Squat logic: Standing (up_angle: 160) -> Squatting (down_angle: 110)
-          // Direction is 'increasing' because up_angle (160) > down_angle (110)
-          if (angle > config.endAngle) {
-            stageRef.current = 'up';
-            setFeedback(config.startMsg);
-          }
-          if (angle < config.startAngle && stageRef.current === 'up') {
-            stageRef.current = 'down';
-            repCountRef.current += 1;
-            setRepCount(repCountRef.current);
-            setFeedback(config.endMsg);
-          }
-        }
-      }
+    if (config.direction === 'decreasing') {
+      if (angle > config.startAngle) { stageRef.current = 'down'; setFeedback(config.startMsg); }
+      if (angle < config.endAngle && stageRef.current === 'down') { stageRef.current = 'up'; addRep(); setFeedback(config.endMsg); }
+    } else {
+      if (angle > config.endAngle) { stageRef.current = 'up'; setFeedback(config.startMsg); }
+      if (angle < config.startAngle && stageRef.current === 'up') { stageRef.current = 'down'; addRep(); setFeedback(config.endMsg); }
     }
   };
 
-  const drawAngleText = (ctx, angle, landmark, width, height) => {
+  // ── Drawing Helpers ─────────────────────────────────────
+  const drawAngleText = (ctx, angle, lm, w, h) => {
     ctx.save();
-    const x = width - (landmark.x * width);
-    const y = landmark.y * height;
     ctx.fillStyle = '#00ffcc';
     ctx.font = 'bold 18px Arial';
-    ctx.fillText(`${Math.round(angle)}°`, x + 15, y);
+    ctx.fillText(`${Math.round(angle)}°`, w - lm.x * w + 12, lm.y * h);
     ctx.restore();
   };
 
-  const drawSkeleton = (ctx, landmarks, width, height) => {
+  const drawSkeleton = (ctx, lms, w, h) => {
     ctx.save();
     ctx.strokeStyle = '#00ffcc';
     ctx.lineWidth = 3;
     ctx.fillStyle = '#ff0055';
 
     const connections = [
-      [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
-      [11, 23], [12, 24], [23, 24],
-      [23, 25], [25, 27], [24, 26], [26, 28]
+      [11,12],[11,13],[13,15],[12,14],[14,16],
+      [11,23],[12,24],[23,24],
+      [23,25],[25,27],[24,26],[26,28],
     ];
-
-    connections.forEach(([i1, i2]) => {
-      const pt1 = landmarks[i1];
-      const pt2 = landmarks[i2];
-      if (pt1.visibility > 0.5 && pt2.visibility > 0.5) {
+    connections.forEach(([a, b]) => {
+      if (lms[a].visibility > 0.5 && lms[b].visibility > 0.5) {
         ctx.beginPath();
-        ctx.moveTo(width - (pt1.x * width), pt1.y * height);
-        ctx.lineTo(width - (pt2.x * width), pt2.y * height);
+        ctx.moveTo(w - lms[a].x * w, lms[a].y * h);
+        ctx.lineTo(w - lms[b].x * w, lms[b].y * h);
         ctx.stroke();
       }
     });
-
-    landmarks.forEach((lm, index) => {
-      if (index > 10 && lm.visibility > 0.5) {
+    lms.forEach((lm, idx) => {
+      if (idx > 10 && lm.visibility > 0.5) {
         ctx.beginPath();
-        ctx.arc(width - (lm.x * width), lm.y * height, 5, 0, 2 * Math.PI);
+        ctx.arc(w - lm.x * w, lm.y * h, 5, 0, 2 * Math.PI);
         ctx.fill();
       }
     });
@@ -296,83 +291,84 @@ function AICameraCounter({ onApplyCount, onClose }) {
     stageRef.current = null;
   };
 
-  useEffect(() => {
-    if (!window.Pose || !window.Camera) {
-      setFeedback("⚠️ MediaPipe failed to load. Please verify index.html script tags.");
-    }
-    return () => {
-      stopCamera();
-    };
-  }, []);
-
+  // ── Render ──────────────────────────────────────────────
   return (
     <div style={{
-      background: 'rgba(26, 26, 46, 0.95)',
-      padding: '20px',
+      background: 'rgba(15,15,26,0.98)',
       borderRadius: '16px',
-      border: '1px solid rgba(255, 255, 255, 0.1)',
-      margin: '20px 0',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center'
+      border: '1px solid rgba(255,255,255,0.08)',
+      overflow: 'hidden',
+      width: '100%',
     }}>
-      <h3 style={{ margin: '0 0 10px 0', color: '#fff' }}>AI Smart Rep Counter</h3>
-      
-      <div style={{ marginBottom: '15px', width: '100%', maxWidth: '400px' }}>
-        <select
-          value={exercise}
-          onChange={(e) => setExercise(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '10px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.2)',
-            background: '#312e81',
-            color: 'white',
-            fontSize: '1rem',
-            cursor: 'pointer'
-          }}
-        >
-          {Object.entries(EXERCISE_CONFIGS).map(([key, config]) => (
-            <option key={key} value={key}>{config.label}</option>
-          ))}
-        </select>
-      </div>
+      {!exerciseLocked && (
+        <div style={{ padding: '10px 10px 0' }}>
+          <select
+            value={exercise}
+            onChange={(e) => setExercise(e.target.value)}
+            style={{
+              width: '100%', padding: '10px', borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.15)',
+              background: '#312e81', color: 'white', fontSize: '0.95rem',
+            }}
+          >
+            {Object.entries(EXERCISE_CONFIGS).map(([key, cfg]) => (
+              <option key={key} value={key}>{cfg.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
-      <div style={{ position: 'relative', width: '100%', maxWidth: '400px', aspectRatio: '4/3', background: '#000', borderRadius: '12px', overflow: 'hidden' }}>
+      {/* Camera view */}
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '4/3', background: '#000' }}>
         <video ref={videoRef} style={{ display: 'none' }} playsInline muted />
         <canvas ref={canvasRef} width={400} height={300} style={{ width: '100%', height: '100%', display: 'block' }} />
-        
+
         <div style={{
-          position: 'absolute', top: '10px', right: '10px', background: 'rgba(0, 0, 0, 0.7)',
-          padding: '6px 12px', borderRadius: '20px', color: '#00ffcc', fontWeight: 'bold', fontSize: '20px'
+          position: 'absolute', top: 10, right: 10,
+          background: 'rgba(0,0,0,0.75)', padding: '6px 14px',
+          borderRadius: '20px', color: '#00ffcc', fontWeight: 'bold', fontSize: '1.3rem',
         }}>
-          Reps: {repCount}
+          {repCount}
         </div>
+
+        {!isCameraActive && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: 'rgba(0,0,0,0.65)',
+            flexDirection: 'column', gap: 8,
+          }}>
+            <span style={{ fontSize: '2.5rem' }}>📷</span>
+            <span style={{ color: '#fff', fontSize: '0.85rem' }}>Camera off</span>
+          </div>
+        )}
       </div>
 
-      <p style={{ color: '#aaa', margin: '10px 0', fontStyle: 'italic' }}>{feedback}</p>
+      <p style={{ color: '#94a3b8', margin: '8px 12px', fontStyle: 'italic', fontSize: '0.8rem', textAlign: 'center' }}>
+        {feedback}
+      </p>
 
-      <div style={{ display: 'flex', gap: '10px', width: '100%', maxWidth: '400px' }}>
+      <div style={{ display: 'flex', gap: 8, padding: '0 10px 10px' }}>
         {!isCameraActive ? (
-          <button onClick={startCamera} style={{ flex: 1, background: '#10b981', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>
-            Start Camera
+          <button onClick={startCamera} style={{ flex: 1, background: '#10b981', color: '#fff', border: 'none', padding: '11px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+            ▶ Start Camera
           </button>
         ) : (
-          <button onClick={stopCamera} style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>
-            Stop Camera
+          <button onClick={stopCamera} style={{ flex: 1, background: '#ef4444', color: '#fff', border: 'none', padding: '11px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}>
+            ⏹ Stop
           </button>
         )}
-        <button onClick={resetCount} style={{ background: '#4b5563', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}>
-          Reset
+        <button onClick={resetCount} style={{ background: '#374151', color: '#fff', border: 'none', padding: '11px 14px', borderRadius: '8px', cursor: 'pointer' }}>
+          ↺
         </button>
-        <button 
-          onClick={() => { stopCamera(); onApplyCount(repCount); }} 
-          style={{ flex: 1, background: '#4f46e5', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer' }}
-          disabled={repCount === 0}
-        >
-          Use Count
-        </button>
+        {onApplyCount && (
+          <button
+            onClick={() => { stopCamera(); onApplyCount(repCount); }}
+            disabled={repCount === 0}
+            style={{ flex: 1, background: '#4f46e5', color: '#fff', border: 'none', padding: '11px', borderRadius: '8px', cursor: 'pointer', fontWeight: 700 }}
+          >
+            Use Count
+          </button>
+        )}
       </div>
     </div>
   );
